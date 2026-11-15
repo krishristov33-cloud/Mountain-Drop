@@ -2,13 +2,15 @@
 
 A modern-Japan low-poly downhill MTB game. Lean a full-face rider down night roads and switchbacks, link tricks into combos, drift the guardrails, and ride through rain, snow, fog, and sakura wind while music-reactive spirit chasers close in. A 20-trail hub opens the mountain one descent at a time, and a gear shop spends your bank on the bike that gets you further.
 
-**[Play live](https://krishristov33-cloud.github.io/Mountain-Drop/)**
+**[Play live](https://krishristov33-cloud.github.io/Mountain-Drop/)** — this site tracks `main`, which is prototype **v0.5**.
 
-Prototype v0.6 is a single [`index.html`](index.html). It loads three.js from the unpkg and jsDelivr CDNs and has no build step. Use the live site, or serve this folder and open the file in Chrome or Edge.
+`main` is the playable build: the 20-trail hub, gear shop, tricks, combos, drift, weather, and music-reactive spirit chasers, without the harder realistic bike physics. It is a single [`index.html`](index.html). It loads three.js from the unpkg and jsDelivr CDNs and has no build step. Use the live site, or serve this folder and open the file in Chrome or Edge.
+
+The experimental physics build is prototype **v0.6**, preserved unchanged on [`realistic-physics-v0.6`](https://github.com/krishristov33-cloud/Mountain-Drop/tree/realistic-physics-v0.6). That branch’s `index.html` is the slope-momentum, lean-steer, and grip model for later testing.
 
 ## Controls
 
-v0.6 ride controls, from [docs/NOTES.md](docs/NOTES.md). The same map is on the start screen and the pause menu.
+v0.5 ride controls, from [docs/NOTES.md](docs/NOTES.md). The same map is on the start screen and the pause menu.
 
 | Key | Action |
 | --- | --- |
@@ -28,7 +30,7 @@ Arrow keys do the same as W A S D. On the trail hub, arrows or WASD move between
 
 ## Screenshots
 
-Cedar Pass in sakura wind.
+Cedar Pass in sakura wind, from the v0.6 physics build.
 
 ![Night descent on Cedar Pass, sakura petals over the asphalt, speed and run score on the HUD](screenshots/shot_v6.png)
 

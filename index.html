@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>The Mountain Drop — prototype v0.6</title>
+<title>The Mountain Drop — prototype v0.5</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{--indigo:#141a3a;--red:#e0242c;--cyan:#2fe6ff;--orange:#ff9a3c;--pink:#ff7eb6;--cream:#f4efe3}
@@ -211,7 +211,7 @@ table.sum td:last-child{text-align:right;font-weight:900}
 <div id="flash"></div>
 <div id="start" class="overlay"><div class="card">
   <h1>THE MOUNTAIN <span>DROP</span></h1>
-  <div class="lbl">マウンテン・ドロップ · prototype v0.6 · Apex Team</div>
+  <div class="lbl">マウンテン・ドロップ · prototype v0.5 · Apex Team</div>
   <p>All downhill. Gravity is the engine. Land tricks for points and boost, stay fast or the spirits get you, and bank your points at the konbini at the bottom.</p>
   <div id="trailIntro"></div>
   <button class="btn" id="toHub0">TRAIL HUB 山道 ▶</button><button class="btn cy" id="go">DROP IN ▶</button><button class="btn cy" id="openShop0">GEAR SHOP</button>
@@ -342,13 +342,6 @@ const T={
   crashPenaltyPct:0.10, crashPenaltyMin:150, // Krea: -10% of unbanked run points, flat minimum
   respawnDelay:1.35, wipeDur:0.6,
 };
-/* v0.6 bike physics tuning (all live-editable via MD.PHYS in the console) */
-const PHYS={mass:92, pedalW:420, pedalFmax:330, crr:0.009, cdA:0.62, rho:1.2,   // rider+bike kg, watts, N cap, rolling coeff, drag area m², air density
-  mu:0.95, maxLean:0.95, leanRate:4.2, lowSpeedTurn:2.4, slideGain:0.55, slideScrub:0.5,   // tyre friction (×weather grip ×tyre gear), lean model
-  brakeRamp:3.2, brakeMax:1.05, skidAt:0.92,                                                 // progressive S brakes, decel capped by μg; skid past skidAt
-  suspK:170, suspC:15, suspKick:0.055, landMatch:0.55, landKeep:0.9,                          // spring-damper, landing pitch match
-  spinDamp:1.3, spinAcc:7, popLip:0.55,                                                       // air rotation momentum, lip pop
-  camLag:2.6, camShake:0.9};
 const BPM=174, BEAT=60/BPM, STEP=BEAT/4, BAR=BEAT*4;
 
 /* ===== WORLD LAYOUT (v5: generated from the selected trail's parameters; trail 1 keeps the original hand-placed layout) ===== */
@@ -1203,7 +1196,7 @@ function resetMoves(){P.trick=null;P.drift=null;P.manual=0;P.grind=null;P.bal=0;
 function respawn(atStart=false){
   const d=atStart?8:CPS[P.cp]+4;const c=cx(d);P.yaw=trailYaw(d);P.pos.set(c,H(c,-d),-d);const f=fwdVec();const v0=atStart?7:13;P.vel.set(f.x*v0,0,f.z*v0);
   P.grounded=true;P.air.flip=P.air.spin=P.air.fv=P.air.sv=0;P.charge=0;P.boostT=0;P.boostPending=-1;P.boostPerfT=0;P.lean=0;P.pitch=0;P.steer=0;P.yawRate=0;resetMoves();
-  rig.rotation.set(0,0,0);bike.visible=true;P.leanCmd=0;P.slide=0;P.brk=0;P.sc=0;P.suspV=0;P.skid=false;clearRagdoll();clearSpirits();
+  rig.rotation.set(0,0,0);bike.visible=true;clearRagdoll();clearSpirits();
   P.gate=GATES.findIndex(g=>g>d+5);if(P.gate<0)P.gate=GATES.length;
 }
 function startRun(){P.runPts=0;P.crashes=0;P.tricks=0;P.cp=0;P.boost=0.3;G.runTime=0;C.active=false;C.best=0;
@@ -1270,42 +1263,24 @@ function playerUpdate(dt){
       P.pitch=Math.atan(slope);
       P.lean+=(clamp(-D.dir*(0.35+D.A*0.45),-0.85,0.85)-P.lean)*(1-Math.exp(-dt*6));
     }else{
-      // v0.6: momentum model. Gravity along the slope, rolling resistance, v² air drag (tuck cuts CdA), power-limited pedalling
-      const ca=1/Math.sqrt(1+slope*slope),onR=onRoad(d);
-      acc=-T.G*slope*ca;
-      const cdA=PHYS.cdA*w.drag*gr.drag*(keys.KeyW&&!P.manual&&vf>11?T.tuck:1)*(G.weather==='rain'&&onR?0.8:1);
-      const crr=PHYS.crr*(onR?0.6:1)*(G.weather==='snow'?1.8:G.weather==='rain'?1.25:1);
-      acc-=0.5*PHYS.rho*cdA*vf*Math.abs(vf)/PHYS.mass+crr*T.G*ca*(vf>0.05?1:0);
-      if(vf>T.maxSpeed)acc-=(vf-T.maxSpeed)*0.5;                    // soft top speed (game safety net)
-      if(keys.KeyW&&!P.manual)acc+=Math.min(PHYS.pedalFmax,PHYS.pedalW/Math.max(vf,0.5))/PHYS.mass*(vf<16?1:0); // pedalling: strong from a standstill, fades with speed
-      const mu=PHYS.mu*w.grip*gr.grip,aMax=mu*T.G;                  // tyre friction circle
-      // progressive brakes: S ramps the lever in; decel is capped by grip; past the cap the wheels lock and skid
-      P.brk=keys.KeyS&&!P.manual?Math.min(1,(P.brk||0)+dt*PHYS.brakeRamp):Math.max(0,(P.brk||0)-dt*6);
-      let bDec=P.brk*T.brake*gr.brake;P.skid=false;
-      if(bDec>aMax*PHYS.skidAt){P.skid=true;bDec=aMax*PHYS.skidAt*0.8+(bDec-aMax*PHYS.skidAt)*0.1;}
-      acc-=bDec*(vf>0.05?1:0);
+      acc=-T.G*slope/Math.sqrt(1+slope*slope);
+      let drag=T.drag*w.drag*gr.drag*(keys.KeyW&&!P.manual&&vf>11?T.tuck:1);
+      if(G.weather==='rain'&&onRoad(d)){drag*=0.55;acc+=2.5;}
+      acc-=drag*vf*Math.abs(vf)+T.roll;
+      if(vf>T.maxSpeed)acc-=(vf-T.maxSpeed)*0.9;                    // soft top speed, no hard clamp
+      if(keys.KeyW&&!P.manual&&vf<11)acc+=T.pedal;                   // pedal strokes on the flats
+      if(keys.KeyS&&!P.manual)acc-=T.brake*gr.brake*(w.grip<0.6?0.65:1);
       if(boosting)acc+=T.boostAccel;
       if(G.state==='finishing')acc-=3.5;
       vf=Math.max(0,vf+acc*dt);
-      // lean-steer: input sets a lean target, the bike leans first (lag) and the turn follows: yawRate = g·tan(lean)/v
-      P.leanCmd=(P.leanCmd||0)+(P.steer*PHYS.maxLean-(P.leanCmd||0))*(1-Math.exp(-dt*PHYS.leanRate*(P.skid?0.4:1)));
-      const v=Math.max(vf,0.1);let yrT=T.G*Math.tan(P.leanCmd)/Math.max(v,2.5);
-      const low=clamp(1-(vf-2)/6,0,1);yrT=yrT*(1-low)+P.steer*PHYS.lowSpeedTurn*w.turn*low;   // walking pace: direct steering
-      yrT=clamp(yrT,-3,3)*w.turn;
-      // lateral grip limit: v·yawRate vs μg (minus what braking already uses). Over the limit the bike understeers and slides out gradually
-      const aLatMax=Math.sqrt(Math.max(0.05,aMax*aMax-bDec*bDec));
-      const aLat=v*yrT;P.slide=(P.slide||0)*Math.exp(-dt*2.5);
-      if(Math.abs(aLat)>aLatMax&&vf>4){const ex=Math.abs(aLat)-aLatMax;yrT=Math.sign(yrT)*aLatMax/v;vs-=Math.sign(yrT)*ex*PHYS.slideGain*dt;P.slide=Math.min(1.5,P.slide+ex*dt*0.35);}
-      vs*=Math.exp(-T.gripBase*w.grip*gr.grip*(1-0.6*Math.min(1,P.slide))*(P.skid?0.5:1)*dt);
-      vf=Math.max(0,vf-Math.abs(vs)*PHYS.slideScrub*dt*(P.skid?1.5:1));   // sideways scrub costs speed
-      if(P.slide>1.2&&vf>13&&G.state==='ride'){P.slide=0;crash('WASHOUT — LOST THE FRONT');return;}
-      P.yawRate+=(yrT-P.yawRate)*(1-Math.exp(-dt*9));
+      vs*=Math.exp(-T.gripBase*w.grip*gr.grip*dt);
+      const yrT=P.steer*T.turnRate*w.turn*(0.45+0.55*Math.min(1,vf/6))/(1+vf*0.012);
+      P.yawRate+=(yrT-P.yawRate)*(1-Math.exp(-dt*7));               // weighty: yaw rate eases toward target
       P.yaw+=P.yawRate*dt*(vf>0.5?1:0.4);
       P.vel.x=f.x*vf+r.x*vs;P.vel.z=f.z*vf+r.z*vs;
       P.pitch=Math.atan(slope);
-      const leanT=clamp(-(P.leanCmd*(1-low)+Math.atan(vf*P.yawRate/9.8)*low)-vs*0.03,-0.95,0.95);
-      P.lean+=(leanT-P.lean)*(1-Math.exp(-dt*10));
-      if(P.skid&&vf>3&&Math.random()<0.8){const rw=P.pos.clone().addScaledVector(f,0.6);rw.y+=0.08;emit(rw,1,sprayCol(),1.0,0.5,0.5,0.5);}
+      const leanT=clamp(-Math.atan(vf*P.yawRate/9.8)*0.95,-0.8,0.8); // roll ∝ turn rate × speed
+      P.lean+=(leanT-P.lean)*(1-Math.exp(-dt*6));
       if(Math.abs(vs)>2.5&&Math.random()<0.5){const rw=P.pos.clone();rw.y+=0.1;emit(rw,1,sprayCol(),1.2,0.6,0.6,0.5);}
     }
     if(keys.Space)P.charge=Math.min(1,P.charge+dt/0.5);
@@ -1326,15 +1301,14 @@ function playerUpdate(dt){
   if(P.grounded){
     const prevY=P.pos.y;const vyPred=P.vel.y-T.G*dt;const yAir=prevY+vyPred*dt;
     if(yAir>h+0.06){takeOff(yAir,vyPred);}
-    else{P.pos.y=h;const nvy=(h-prevY)/Math.max(dt,1e-4);P.suspV=(P.suspV||0)-(nvy-P.vel.y)*PHYS.suspKick;P.vel.y=nvy;}
+    else{P.pos.y=h;P.vel.y=(h-prevY)/Math.max(dt,1e-4);}
   }else{
     P.air.t+=dt;P.vel.y-=T.G*w.grav*dt;P.pos.y+=P.vel.y*dt;
     if(!modHeld()&&!P.trick){
       const fIn=(keys.KeyH?1:0)-(keys.KeyY?1:0),sIn=(keys.KeyE?1:0)-(keys.KeyQ?1:0);   // v4: Y front flip, H back flip (air only), Q/E spin
-      if(fIn)P.air.fv+=(fIn*T.flipRate-P.air.fv)*(1-Math.exp(-dt*PHYS.spinAcc));else P.air.fv*=Math.exp(-dt*PHYS.spinDamp);   // v0.6: rotation keeps momentum, damps slowly
-      if(sIn)P.air.sv+=(sIn*T.spinRate-P.air.sv)*(1-Math.exp(-dt*PHYS.spinAcc));else P.air.sv*=Math.exp(-dt*PHYS.spinDamp);
-      if(!fIn&&Math.abs(P.air.fv)<2.5){const rr=wrapPi(P.air.flip);if(Math.abs(rr)<0.7)P.air.flip-=rr*Math.min(1,dt*3);}
-      if(!sIn&&Math.abs(P.air.sv)<2.5){const rr=wrapPi(P.air.spin);if(Math.abs(rr)<0.8)P.air.spin-=rr*Math.min(1,dt*3);}
+      P.air.fv+=(fIn*T.flipRate-P.air.fv)*(1-Math.exp(-dt*10));P.air.sv+=(sIn*T.spinRate-P.air.sv)*(1-Math.exp(-dt*10));
+      if(!fIn){const rr=wrapPi(P.air.flip);if(Math.abs(rr)<0.7)P.air.flip-=rr*Math.min(1,dt*4);}
+      if(!sIn){const rr=wrapPi(P.air.spin);if(Math.abs(rr)<0.8)P.air.spin-=rr*Math.min(1,dt*4);}
     }else{P.air.fv*=Math.exp(-dt*8);P.air.sv*=Math.exp(-dt*8);}
     P.air.flip+=P.air.fv*dt;P.air.spin+=P.air.sv*dt;
     P.pitch+=(Math.atan2(P.vel.y,Math.max(1,vf))*0.5-P.pitch)*Math.min(1,dt*3);
@@ -1366,9 +1340,6 @@ function commonChecks(dt,d,h){
   if(G.state==='ride'&&d>FINISH_D){G.state='finishing';P.finishT=0;comboBank();pop('ゴール FINISH!','big');}
   if(G.state==='finishing'){P.finishT+=dt;if(speedH()<1.2||d>FINISH_D+125||P.finishT>12)showSummary();}
   P.squash*=Math.exp(-dt*14);
-  // v0.6 spring-damper (compression sc, + = compressed)
-  P.sc=P.sc||0;P.suspV=P.suspV||0;const k=PHYS.suspK*(gear().susp>1.2?0.85:1),c=PHYS.suspC;
-  P.suspV+=(-k*P.sc-c*P.suspV)*dt;P.sc+=P.suspV*dt;P.sc=clamp(P.sc,-0.12,0.32);
 }
 function land(h){
   const w=WX[G.weather],gr=gear();
@@ -1382,12 +1353,7 @@ function land(h){
     if(fr>tolF||sr>tolS||impact<-tolI){crash(impact<-tolI?'HARD LANDING':'BAD LANDING');return;}
   }
   if(P.trick){const def=TRICKS[P.trick.id];comboAdd(def.name,def.base*0.5);P.trick=null;}  // just-in-time finish = half value
-  // v0.6 landing quality: bike pitch vs slope + vertical impact. Matched, soft landings keep speed; flat or nose-heavy ones scrub it
-  const slA=Math.atan2(-gVy,Math.max(hs,0.5)),bp=P.pitch+wrapPi(P.air.flip),mis=Math.abs(wrapPi(bp-(-slA)));
-  const sus=gr.susp;const lossF=clamp((mis*PHYS.landMatch+Math.max(0,-impact-3)*0.025)/sus,0,0.45);
-  const keep=1-lossF;P.vel.x*=keep;P.vel.z*=keep;P.suspV=(P.suspV||0)+Math.min(4,-impact*0.22)/Math.sqrt(sus);
-  if(G.state==='ride'&&air>0.45){if(lossF<0.06)pop('BUTTER LANDING','gold');else if(lossF>0.25)pop('FLAT LANDING −'+Math.round(lossF*100)+'%','warn');}
-  if(G.state==='ride'&&-impact>tolI*0.8&&mis>0.6){crash('NOSE-HEAVY LANDING');return;}
+  const loss=1-clamp(-impact*0.008,0,0.15);P.vel.x*=loss;P.vel.z*=loss;
   P.squash=1;emit(P.pos.clone().setY(h+0.2),12,sprayCol(),2.2,1.2,0.6,0.7);
   const flips=Math.round(Math.abs(P.air.flip)/TAU),spins=Math.round(Math.abs(P.air.spin)/TAU);
   if(flips)comboAdd((P.air.flip<0?'Frontflip':'Backflip')+(flips>1?' ×'+flips:''),800*flips);
@@ -1408,7 +1374,7 @@ function jump(){if(!P.grounded&&!P.grind)return;
   if(P.grind){const g=P.grind;P.grind=null;comboAdd('Rail Grind',120+g.len*60);P.grounded=false;P.vel.y=v;P.air.t=0;P.airTricks=0;P.air.flip=P.air.spin=0;P.charge=0;return;}
   const wasMan=P.manual;if(P.manual)endManual(true);if(P.drift){comboAdd('Drift',P.drift.pts);P.drift=null;}
   if(speedH()>5&&P.charge>0.2)comboAdd(wasMan?'Manual Hop':'Bunny Hop',wasMan?180:120);
-  P.vel.y=Math.max(0,P.vel.y)*(1+PHYS.popLip)+v;P.grounded=false;P.pos.y+=0.05;   // v0.6: popping on a rising lip adds its liftP.air.t=0;P.air.flip=P.air.spin=P.air.fv=P.air.sv=0;P.airTricks=0;P.charge=0;C.grace=-1;
+  P.vel.y+=v;P.grounded=false;P.pos.y+=0.05;P.air.t=0;P.air.flip=P.air.spin=P.air.fv=P.air.sv=0;P.airTricks=0;P.charge=0;C.grace=-1;
 }
 /* ---- rail grinds ---- */
 function tryCatchRail(){if(P.grind||G.state!=='ride'&&G.state!=='finishing')return;const d=-P.pos.z;
@@ -1485,9 +1451,8 @@ function cameraUpdate(dt){
   const ch=H(want.x,want.z)+3;if(want.y<ch)want.y=ch;
   const look=ref.clone().addScaledVector(back,6).addScaledVector(right,swing);look.y+=0.3;
   if(camSnap){camPos.copy(want);camLook.copy(look);camSnap=false;}
-  camPos.lerp(want,1-Math.exp(-dt*(G.state==='crash'?1.5:PHYS.camLag)));camLook.lerp(look,1-Math.exp(-dt*6));
+  camPos.lerp(want,1-Math.exp(-dt*(G.state==='crash'?1.5:3.4)));camLook.lerp(look,1-Math.exp(-dt*6));
   camera.position.copy(camPos);
-  if(P.grounded&&G.state==='ride'){const sh=Math.min(0.25,Math.abs(P.suspV||0)*0.05*PHYS.camShake+sp*0.0015*(onRoad(-P.pos.z)?0.3:1));camera.position.y+=(Math.random()-.5)*sh;camera.position.x+=(Math.random()-.5)*sh*0.5;}
   if(G.shake>0.01){camera.position.x+=(Math.random()-.5)*G.shake;camera.position.y+=(Math.random()-.5)*G.shake;G.shake*=Math.exp(-dt*7);}
   if(sp>17&&G.state!=='crash'){const a=(sp-17)*0.012;camera.position.x+=Math.sin(G.time*37)*a;camera.position.y+=Math.cos(G.time*29)*a;}
   camera.lookAt(camLook);camera.rotateZ(P.lean*0.2);
@@ -1533,8 +1498,7 @@ function bikeVisual(dt){
   const s=speedH();
   bike.position.copy(P.pos);bike.rotation.set(P.pitch,-P.yaw,P.lean,'YXZ');
   const man=P.manual?(P.manual>0?0.42:-0.3):0;P.manVis=(P.manVis||0)+(man-(P.manVis||0))*Math.min(1,dt*10);
-  if(P.grounded||P.grind)rig.rotation.set(P.manVis+(P.suspV||0)*0.02-(P.brk||0)*0.04,0,0,'YXZ');else rig.rotation.set(P.air.flip,-P.air.spin,0,'YXZ');
-  rig.position.y=0.8-(P.sc||0)*0.5;
+  if(P.grounded||P.grind)rig.rotation.set(P.manVis,0,0,'YXZ');else rig.rotation.set(P.air.flip,-P.air.spin,0,'YXZ');
   wheelAng-=s/0.4*dt;crankAng-=(s*0.55+(keys.KeyW&&s<11?7:0))*dt;
   poseRider(dt);
   if(P.boostT>0&&Math.random()<0.6){const p=P.pos.clone();p.y+=0.6;emit(p,1,Math.random()<.5?0xff9cc6:0x2fe6ff,0.6,0.3,0,0.5);}
@@ -1718,7 +1682,7 @@ function tick(dt){
 requestAnimationFrame(frame);
 initFX();
 window.__mdBooted=true;
-window.MD={PHYS,TR,TRAILS,GEAR,save:()=>save,trailStatus,openHub,openShop,rideTrail,showSummary,mkCx,KICKERS,ROADS,FINISH_D,H,cx,buckets,C,RAILS,CLIFF,sim:(sec)=>{MD._sim=true;for(let i=0;i<sec*60;i++)tick(1/60);MD._sim=false;},render:()=>renderFrame(),FXQ,fx:()=>({composer:!!composer,err:FX_ERR,perf}),togglePause,firstGesture,fallbackSynth,GR,LAMPS,camera,bike,P,G,B,T,setWeather,startRun,spirits,musicTime,spawnGate,crash,keys,Music,jump,tryStartTrick};
+window.MD={TR,TRAILS,GEAR,save:()=>save,trailStatus,openHub,openShop,rideTrail,showSummary,mkCx,KICKERS,ROADS,FINISH_D,H,cx,buckets,C,RAILS,CLIFF,sim:(sec)=>{MD._sim=true;for(let i=0;i<sec*60;i++)tick(1/60);MD._sim=false;},render:()=>renderFrame(),FXQ,fx:()=>({composer:!!composer,err:FX_ERR,perf}),togglePause,firstGesture,fallbackSynth,GR,LAMPS,camera,bike,P,G,B,T,setWeather,startRun,spirits,musicTime,spawnGate,crash,keys,Music,jump,tryStartTrick};
 </script>
 </body>
 </html>
